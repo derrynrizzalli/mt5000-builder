@@ -69,6 +69,7 @@ jobs:
           CONFIG_PACKAGE_ip6tables-nft=y
           CONFIG_PACKAGE_iptables-mod-conntrack-extra=y
           CONFIG_PACKAGE_iptables-mod-ipopt=y
+          CONFIG_PACKAGE_iptables-mod-nat-extra=y
           CONFIG_PACKAGE_wget-ssl=y
           EOF
           make defconfig
@@ -108,12 +109,32 @@ jobs:
 
       - name: Assemble a self-hosted package repo matching this exact build
         run: |
-          mkdir -p pages-repo/targets/mediatek/filogic
-          cp -r bin/targets/mediatek/filogic/packages pages-repo/targets/mediatek/filogic/
-          cp -r bin/targets/mediatek/filogic/kmods pages-repo/targets/mediatek/filogic/
-          mkdir -p pages-repo/packages
-          cp -r bin/packages/aarch64_cortex-a53 pages-repo/packages/
-          du -sh pages-repo
+          echo "--- bin/targets/mediatek/filogic contents (2 levels) ---"
+          find bin/targets/mediatek/filogic -maxdepth 2
+          echo "--- bin/packages contents (2 levels) ---"
+          find bin/packages -maxdepth 2
+
+          mkdir -p pages-repo/targets/mediatek/filogic pages-repo/packages
+
+          if [ -d bin/targets/mediatek/filogic/packages ]; then
+            cp -r bin/targets/mediatek/filogic/packages pages-repo/targets/mediatek/filogic/
+          else
+            echo "WARNING: bin/targets/mediatek/filogic/packages not found, skipping"
+          fi
+
+          if [ -d bin/targets/mediatek/filogic/kmods ]; then
+            cp -r bin/targets/mediatek/filogic/kmods pages-repo/targets/mediatek/filogic/
+          else
+            echo "WARNING: bin/targets/mediatek/filogic/kmods not found, skipping (see directory listing above)"
+          fi
+
+          if [ -d bin/packages/aarch64_cortex-a53 ]; then
+            cp -r bin/packages/aarch64_cortex-a53 pages-repo/packages/
+          else
+            echo "WARNING: bin/packages/aarch64_cortex-a53 not found, skipping"
+          fi
+
+          du -sh pages-repo || true
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3

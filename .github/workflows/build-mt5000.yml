@@ -1,0 +1,75 @@
+name: Build OpenWrt for GL.iNet GL-MT5000 (Brume 3)
+
+# Builds firmware from the community fork nathanli1211/openwrt_mt5000
+# (glinet-mt5000 branch) on GitHub's free runners.
+# Run it manually from the Actions tab -> "Run workflow".
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+
+    steps:
+      - name: Free up disk space on the runner
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          sudo docker image prune --all --force || true
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3-setuptools rsync swig unzip zlib1g-dev file wget
+
+      - name: Check out the MT5000 source fork
+        uses: actions/checkout@v4
+        with:
+          repository: nathanli1211/openwrt_mt5000
+          ref: glinet-mt5000
+
+      - name: Update and install package feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Configure the build for GL-MT5000
+        run: |
+          cat > .config <<'EOF'
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_glinet_gl-mt5000=y
+          CONFIG_TARGET_ROOTFS_PARTSIZE=7000
+          CONFIG_PACKAGE_luci=y
+          EOF
+          make defconfig
+          # Fail fast if the device profile did not stick
+          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_glinet_gl-mt5000=y' .config
+
+      - name: Download source packages
+        run: make download -j$(nproc) || make download -j1
+
+      - name: Build firmware (takes 2-4 hours)
+        run: make -j$(nproc) world || make -j1 V=s world
+
+      - name: Show build results and disk usage
+        if: always()
+        run: |
+          df -h /
+          ls -lh bin/targets/mediatek/filogic/ || true
+
+      - name: Upload firmware images
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-gl-mt5000-firmware
+          retention-days: 30
+          path: |
+            bin/targets/mediatek/filogic/*.bin
+            bin/targets/mediatek/filogic/*.manifest
+            bin/targets/mediatek/filogic/sha256sums
+            bin/targets/mediatek/filogic/config.buildinfo

@@ -7,6 +7,11 @@ name: Build OpenWrt for GL.iNet GL-MT5000 (Brume 3)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -70,6 +75,14 @@ jobs:
           # Fail fast if the device profile did not stick
           grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_glinet_gl-mt5000=y' .config
 
+      - name: Cache downloaded source tarballs
+        uses: actions/cache@v4
+        with:
+          path: dl
+          key: mt5000-dl-${{ hashFiles('.config') }}
+          restore-keys: |
+            mt5000-dl-
+
       - name: Download source packages
         run: make download -j$(nproc) || make download -j1
 
@@ -92,3 +105,31 @@ jobs:
             bin/targets/mediatek/filogic/*.manifest
             bin/targets/mediatek/filogic/sha256sums
             bin/targets/mediatek/filogic/config.buildinfo
+
+      - name: Assemble a self-hosted package repo matching this exact build
+        run: |
+          mkdir -p pages-repo/targets/mediatek/filogic
+          cp -r bin/targets/mediatek/filogic/packages pages-repo/targets/mediatek/filogic/
+          cp -r bin/targets/mediatek/filogic/kmods pages-repo/targets/mediatek/filogic/
+          mkdir -p pages-repo/packages
+          cp -r bin/packages/aarch64_cortex-a53 pages-repo/packages/
+          du -sh pages-repo
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages-repo
+
+  publish-package-repo:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy package repo to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -118,21 +118,25 @@ jobs:
           uci set prometheus-node-exporter-lua.main.listen_port='9100'
           uci commit prometheus-node-exporter-lua
 
-          # /etc/apk/repositories.d/distfeeds.list is NOT preserved by
-          # sysupgrade's "Keep settings" (OpenWrt explicitly excludes it, since
-          # it's meant to match the exact build it ships with). Re-point it at
-          # the self-hosted GitHub Pages repo automatically instead of doing
-          # this by hand after every reflash.
-          GHPAGES_URL="https://derrynrizzalli.github.io/mt5000-builder"
-          DISTFEEDS=/etc/apk/repositories.d/distfeeds.list
-          if [ -f "$DISTFEEDS" ] && ! grep -q "$GHPAGES_URL" "$DISTFEEDS"; then
-                  sed -i "s#https://downloads\.openwrt\.org/releases/[^ ]*#$GHPAGES_URL#g" "$DISTFEEDS"
-                  sed -i '/\/routing$/d; /\/telephony$/d; /\/video$/d' "$DISTFEEDS"
-          fi
-
           exit 0
           DEFAULTS
           chmod +x files/etc/uci-defaults/99-unbound-cache
+
+          # /etc/apk/repositories.d/distfeeds.list is NOT preserved by
+          # sysupgrade's "Keep settings" (OpenWrt explicitly excludes it, since
+          # it's meant to match the exact build it ships with) - base-files
+          # regenerates it fresh every build, pointed at downloads.openwrt.org.
+          # Ship the self-hosted-repo version directly as a files/ overlay
+          # instead of sed-patching the generated file at boot (a previous
+          # sed-based approach here corrupted the per-category paths and broke
+          # apk entirely - this is deliberately a static, known-correct file).
+          mkdir -p files/etc/apk/repositories.d
+          cat > files/etc/apk/repositories.d/distfeeds.list <<'REPOS'
+          https://derrynrizzalli.github.io/mt5000-builder/targets/mediatek/filogic/packages/packages.adb
+          https://derrynrizzalli.github.io/mt5000-builder/packages/aarch64_cortex-a53/base/packages.adb
+          https://derrynrizzalli.github.io/mt5000-builder/packages/aarch64_cortex-a53/packages/packages.adb
+          https://derrynrizzalli.github.io/mt5000-builder/packages/aarch64_cortex-a53/luci/packages.adb
+          REPOS
 
       - name: Configure the build for GL-MT5000
         run: |

@@ -118,6 +118,18 @@ jobs:
           uci set prometheus-node-exporter-lua.main.listen_port='9100'
           uci commit prometheus-node-exporter-lua
 
+          # /etc/apk/repositories.d/distfeeds.list is NOT preserved by
+          # sysupgrade's "Keep settings" (OpenWrt explicitly excludes it, since
+          # it's meant to match the exact build it ships with). Re-point it at
+          # the self-hosted GitHub Pages repo automatically instead of doing
+          # this by hand after every reflash.
+          GHPAGES_URL="https://derrynrizzalli.github.io/mt5000-builder"
+          DISTFEEDS=/etc/apk/repositories.d/distfeeds.list
+          if [ -f "$DISTFEEDS" ] && ! grep -q "$GHPAGES_URL" "$DISTFEEDS"; then
+                  sed -i "s#https://downloads\.openwrt\.org/releases/[^ ]*#$GHPAGES_URL#g" "$DISTFEEDS"
+                  sed -i '/\/routing$/d; /\/telephony$/d; /\/video$/d' "$DISTFEEDS"
+          fi
+
           exit 0
           DEFAULTS
           chmod +x files/etc/uci-defaults/99-unbound-cache
@@ -134,8 +146,6 @@ jobs:
           CONFIG_PACKAGE_unbound-daemon=y
           CONFIG_PACKAGE_unbound-control=y
           CONFIG_PACKAGE_luci-app-unbound=y
-          CONFIG_PACKAGE_mwan3=y
-          CONFIG_PACKAGE_luci-app-mwan3=y
           CONFIG_PACKAGE_kmod-nft-nat=y
           CONFIG_PACKAGE_kmod-nft-compat=y
           CONFIG_PACKAGE_kmod-ip6tables=y

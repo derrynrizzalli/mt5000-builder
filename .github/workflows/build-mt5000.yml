@@ -43,6 +43,85 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
+      - name: Add custom files (unbound cache persistence)
+        run: |
+          mkdir -p files/etc/init.d files/etc/uci-defaults
+
+          cat > files/etc/init.d/unbound-cache <<'SCRIPT'
+          #!/bin/sh /etc/rc.common
+          # Persist unbound's DNS cache across restarts/reboots/power loss.
+          # START must run after unbound (START=19); STOP must run before
+          # unbound stops (STOP=50), so the cache is still readable.
+
+          START=95
+          STOP=05
+
+          CACHE_FILE=/etc/unbound/cache.dump
+          LOG_TAG=unbound-cache
+
+          EXTRA_COMMANDS="dump load"
+          EXTRA_HELP="        dump    Dump unbound's cache to disk now
+                  load    Load unbound's cache from disk now"
+
+          dump() {
+                  if unbound-control dump_cache > "$CACHE_FILE.tmp" 2>/dev/null; then
+                          mv "$CACHE_FILE.tmp" "$CACHE_FILE"
+                          logger -t "$LOG_TAG" "cache dumped ($(wc -c < "$CACHE_FILE") bytes)"
+                  else
+                          rm -f "$CACHE_FILE.tmp"
+                          logger -t "$LOG_TAG" "cache dump failed (unbound-control not responding)"
+                  fi
+          }
+
+          load() {
+                  [ -s "$CACHE_FILE" ] || return 0
+                  local i=0
+                  while ! unbound-control status >/dev/null 2>&1; do
+                          i=$((i + 1))
+                          [ "$i" -ge 20 ] && { logger -t "$LOG_TAG" "unbound not ready after 20s, skipping cache load"; return 1; }
+                          sleep 1
+                  done
+                  if unbound-control load_cache < "$CACHE_FILE" 2>/dev/null; then
+                          logger -t "$LOG_TAG" "cache loaded from $CACHE_FILE"
+                  else
+                          logger -t "$LOG_TAG" "cache load failed"
+                  fi
+          }
+
+          start() {
+                  load
+          }
+
+          stop() {
+                  dump
+          }
+          SCRIPT
+          chmod +x files/etc/init.d/unbound-cache
+
+          cat > files/etc/uci-defaults/99-unbound-cache <<'DEFAULTS'
+          #!/bin/sh
+          # Runs once on first boot after flashing, then deletes itself.
+
+          chmod +x /etc/init.d/unbound-cache
+          /etc/init.d/unbound-cache enable
+
+          # Hourly safety-net dump, in case of crash/power loss (no clean shutdown)
+          grep -q unbound-cache /etc/crontabs/root 2>/dev/null || \
+                  echo '0 * * * * /etc/init.d/unbound-cache dump' >> /etc/crontabs/root
+          /etc/init.d/cron enable
+          /etc/init.d/cron restart 2>/dev/null
+
+          # Match the known-good prometheus-node-exporter-lua config (LAN-reachable,
+          # not the loopback-only default)
+          uci set prometheus-node-exporter-lua.main=prometheus-node-exporter-lua
+          uci set prometheus-node-exporter-lua.main.listen_interface='lan'
+          uci set prometheus-node-exporter-lua.main.listen_port='9100'
+          uci commit prometheus-node-exporter-lua
+
+          exit 0
+          DEFAULTS
+          chmod +x files/etc/uci-defaults/99-unbound-cache
+
       - name: Configure the build for GL-MT5000
         run: |
           cat > .config <<'EOF'
@@ -71,6 +150,11 @@ jobs:
           CONFIG_PACKAGE_iptables-mod-ipopt=y
           CONFIG_PACKAGE_iptables-mod-nat-extra=y
           CONFIG_PACKAGE_wget-ssl=y
+          CONFIG_PACKAGE_prometheus-node-exporter-lua=y
+          CONFIG_PACKAGE_vnstat=y
+          CONFIG_PACKAGE_vnstati=y
+          CONFIG_PACKAGE_luci-app-vnstat=y
+          CONFIG_PACKAGE_cron=y
           EOF
           make defconfig
           # Fail fast if the device profile did not stick

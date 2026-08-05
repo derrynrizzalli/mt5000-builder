@@ -144,10 +144,14 @@ jobs:
           /etc/init.d/cron enable
           /etc/init.d/cron restart 2>/dev/null
 
-          # Match the known-good prometheus-node-exporter-lua config (LAN-reachable,
-          # not the loopback-only default)
+          # Bind node_exporter to all interfaces, not just 'lan'. This box's
+          # actual reachable address (10.10.1.2) lives on a separate uplink
+          # interface (eth1/"dns", DHCP from the upstream gateway), not on
+          # the 'lan' interface (which stays at the OpenWrt-default
+          # 192.168.1.1) - binding to 'lan' specifically left Prometheus
+          # unable to reach it at all. Confirmed live and fixed 2026-08-05.
           uci set prometheus-node-exporter-lua.main=prometheus-node-exporter-lua
-          uci set prometheus-node-exporter-lua.main.listen_interface='lan'
+          uci set prometheus-node-exporter-lua.main.listen_interface='*'
           uci set prometheus-node-exporter-lua.main.listen_port='9100'
           uci commit prometheus-node-exporter-lua
 

@@ -98,6 +98,39 @@ jobs:
           SCRIPT
           chmod +x files/etc/init.d/unbound-cache
 
+          # Prometheus exporter for unbound stats - scraped by the OMV
+          # Prometheus 'unbound' job at http://<router>/cgi-bin/metrics.cgi.
+          # Must live in the files/ overlay (not /tmp, not hand-edited via
+          # LuCI) so it survives reboots and reflashes.
+          mkdir -p files/www/cgi-bin
+          cat > files/www/cgi-bin/metrics.cgi <<'CGISCRIPT'
+          #!/bin/sh
+          echo "Content-Type: text/plain"
+          echo ""
+
+          unbound-control stats_noreset 2>/dev/null | awk -F= '
+          $1 ~ /^thread[0-9]+\./ {
+              key = $1
+              sub(/^thread[0-9]+\./, "", key)
+              sum[key] += $2
+              cnt[key]++
+          }
+          END {
+              printf "unbound_queries_total %d\n", sum["num.queries"]+0
+              printf "unbound_cache_hits_total %d\n", sum["num.cachehits"]+0
+              printf "unbound_cache_misses_total %d\n", sum["num.cachemiss"]+0
+              printf "unbound_prefetches_total %d\n", sum["num.prefetch"]+0
+              printf "unbound_expired_total %d\n", sum["num.expired"]+0
+              printf "unbound_request_list_current_all %d\n", sum["requestlist.current.all"]+0
+              avg_n = cnt["recursion.time.avg"]+0
+              med_n = cnt["recursion.time.median"]+0
+              printf "unbound_recursion_time_seconds_avg %f\n", (avg_n>0 ? sum["recursion.time.avg"]/avg_n : 0)
+              printf "unbound_recursion_time_seconds_median %f\n", (med_n>0 ? sum["recursion.time.median"]/med_n : 0)
+          }
+          '
+          CGISCRIPT
+          chmod +x files/www/cgi-bin/metrics.cgi
+
           cat > files/etc/uci-defaults/99-unbound-cache <<'DEFAULTS'
           #!/bin/sh
           # Runs once on first boot after flashing, then deletes itself.

@@ -159,6 +159,33 @@ jobs:
           DEFAULTS
           chmod +x files/etc/uci-defaults/99-unbound-cache
 
+          # PXE/TFTP: turn on dnsmasq's TFTP server pointed at /mnt/pxe.
+          # Plug in the USB drive after flashing, then in LuCI go to
+          # System > Mount Points and set its custom mount point to
+          # /mnt/pxe (so it mounts there consistently by UUID regardless
+          # of which /dev/sdX node it lands on). Drop boot files
+          # (pxelinux.0 / grubnetx64.efi / ipxe.efi / kernels / images)
+          # in there.
+          #
+          # DHCP "boot filename" is deliberately left unset - which
+          # bootloader to chainload depends on what you decide to boot
+          # (diskless Linux vs. installer imaging vs. rescue tools). Set
+          # it once you know, e.g.:
+          #   uci set dhcp.@dnsmasq[0].dhcp_boot='pxelinux.0'
+          #   uci commit dhcp
+          mkdir -p files/mnt/pxe
+          cat > files/etc/uci-defaults/98-pxe-tftp <<'PXEDEFAULTS'
+          #!/bin/sh
+          # Runs once on first boot after flashing, then deletes itself.
+
+          uci set dhcp.@dnsmasq[0].enable_tftp='1'
+          uci set dhcp.@dnsmasq[0].tftp_root='/mnt/pxe'
+          uci commit dhcp
+
+          exit 0
+          PXEDEFAULTS
+          chmod +x files/etc/uci-defaults/98-pxe-tftp
+
           # /etc/apk/repositories.d/distfeeds.list is NOT preserved by
           # sysupgrade's "Keep settings" (OpenWrt explicitly excludes it, since
           # it's meant to match the exact build it ships with) - base-files
@@ -206,6 +233,36 @@ jobs:
           CONFIG_PACKAGE_vnstati=y
           CONFIG_PACKAGE_luci-app-vnstat=y
           CONFIG_PACKAGE_cron=y
+
+          # --- Network boot (PXE) support -----------------------------
+          # dnsmasq-full replaces the default dnsmasq build with one
+          # compiled with TFTP server support (PACKAGE_dnsmasq_full_tftp
+          # defaults to on). It PROVIDES dnsmasq, so this is a straight
+          # swap - DHCP/DNS config is unaffected.
+          CONFIG_PACKAGE_dnsmasq=n
+          CONFIG_PACKAGE_dnsmasq-full=y
+
+          # USB storage + filesystem support, for a USB drive to hold
+          # PXE boot files / images / NFS-exported root filesystems.
+          CONFIG_PACKAGE_kmod-usb3=y
+          CONFIG_PACKAGE_kmod-usb-storage=y
+          CONFIG_PACKAGE_kmod-usb-storage-uas=y
+          CONFIG_PACKAGE_block-mount=y
+          CONFIG_PACKAGE_kmod-fs-ext4=y
+          CONFIG_PACKAGE_kmod-fs-vfat=y
+          CONFIG_PACKAGE_kmod-fs-exfat=y
+          CONFIG_PACKAGE_e2fsprogs=y
+          CONFIG_PACKAGE_dosfstools=y
+          CONFIG_PACKAGE_exfat-mkfs=y
+          CONFIG_PACKAGE_exfat-fsck=y
+          CONFIG_PACKAGE_fdisk=y
+          CONFIG_PACKAGE_parted=y
+
+          # NFS server, for diskless-client root filesystems served from
+          # the USB drive (only needed if you go the diskless-boot route;
+          # harmless otherwise).
+          CONFIG_PACKAGE_nfs-kernel-server=y
+          CONFIG_PACKAGE_nfs-kernel-server-utils=y
           EOF
           make defconfig
           # Fail fast if the device profile did not stick

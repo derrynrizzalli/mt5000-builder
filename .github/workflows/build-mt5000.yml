@@ -263,6 +263,11 @@ jobs:
           # harmless otherwise).
           CONFIG_PACKAGE_nfs-kernel-server=y
           CONFIG_PACKAGE_nfs-kernel-server-utils=y
+
+          # Samba (SMB/CIFS file sharing), for browsing remaining USB
+          # storage from Windows/Mac over the network. luci-app-samba4
+          # pulls in samba4-server automatically.
+          CONFIG_PACKAGE_luci-app-samba4=y
           EOF
           make defconfig
           # Fail fast if the device profile did not stick

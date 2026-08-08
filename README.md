@@ -21,6 +21,12 @@ Actions tab -> "Build OpenWrt for GL.iNet GL-MT5000 (Brume 3)" -> Run workflow.
   - The DHCP "boot filename" is left unset in the firmware since it depends
     on what you're booting - set it via LuCI (Network > DHCP and DNS) or
     `uci set dhcp.@dnsmasq[0].dhcp_boot='<file>'` once decided.
+  - You don't need to give the whole USB drive to boot files - partition it
+    (`fdisk`/`parted`, both included) and only mount a small ext4 partition
+    at `/mnt/pxe`. The rest is free for other uses.
+- **Samba (luci-app-samba4)**: SMB/CIFS file sharing for any USB storage
+  space not used for PXE - configure shares via LuCI (Services > Network
+  Shares) after flashing.
 
 ## Self-hosted package repo
 

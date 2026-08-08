@@ -38,6 +38,32 @@ jobs:
           repository: nathanli1211/openwrt_mt5000
           ref: glinet-mt5000
 
+      - name: Patch USB3 SuperSpeed PHY wiring on the USB-C data port
+        # The board's own dts (mt7987a-gl-mt5000.dts) turns on `ssusb` and
+        # `tphyu3port0`, but the base mt7987.dtsi leaves the xHCI
+        # controller's `phys` list pointing at only the USB2 PHY and sets
+        # mediatek,u3p-dis-msk=<1> (masking off SuperSpeed on this port).
+        # Net effect: the SuperSpeed PHY block powers up but is never
+        # wired to the controller that would use it - port gets power
+        # (device LED lights, confirmed on hardware) but never enumerates
+        # (confirmed via dmesg/logread: zero attach events, despite a
+        # known-good drive). This appends a devicetree override that
+        # removes the mask and adds the missing USB3 PHY reference.
+        #
+        # This is a reasoned fix based on reading the fork's actual
+        # devicetree source, not yet confirmed working on hardware -
+        # verify after this build is flashed.
+        run: |
+          cat >> target/linux/mediatek/dts/mt7987a-gl-mt5000.dts <<'EOF'
+
+          &ssusb {
+          	/delete-property/ mediatek,u3p-dis-msk;
+          	phys = <&tphyu2port0 PHY_TYPE_USB2>, <&tphyu3port0 PHY_TYPE_USB3>;
+          };
+          EOF
+          echo "--- patched dts tail ---"
+          tail -8 target/linux/mediatek/dts/mt7987a-gl-mt5000.dts
+
       - name: Update and install package feeds
         run: |
           ./scripts/feeds update -a

@@ -284,6 +284,14 @@ jobs:
           CONFIG_PACKAGE_fdisk=y
           CONFIG_PACKAGE_parted=y
 
+          # Optical/ISO filesystem support, for mounting install ISOs
+          # (e.g. Windows install media) directly on the router to pull
+          # out boot files. Windows 11 ISOs specifically use UDF (not
+          # plain ISO9660), since install.wim/install.esd can exceed the
+          # 4GB ISO9660 file-size limit.
+          CONFIG_PACKAGE_kmod-fs-isofs=y
+          CONFIG_PACKAGE_kmod-fs-udf=y
+
           # NFS server, for diskless-client root filesystems served from
           # the USB drive (only needed if you go the diskless-boot route;
           # harmless otherwise).

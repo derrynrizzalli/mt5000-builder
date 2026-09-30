@@ -1,7 +1,9 @@
 name: Build OpenWrt for GL.iNet GL-MT5000 (Brume 3)
 
-# Builds firmware from the community fork nathanli1211/openwrt_mt5000
-# (glinet-mt5000 branch) on GitHub's free runners.
+# Builds firmware from dmsza/openwrt branch openwrt-main-mt5000.
+# That tree is OpenWrt main plus GL-MT5000 support from
+# https://github.com/openwrt/openwrt/pull/24237 (RTL8366UB DSA switch).
+# Pinned so a later force-push cannot change what this workflow compiles.
 # Run it manually from the Actions tab -> "Run workflow".
 
 on:
@@ -32,37 +34,28 @@ jobs:
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3-setuptools rsync swig unzip zlib1g-dev file wget
 
-      - name: Check out the MT5000 source fork
+      - name: Check out the MT5000 source tree
         uses: actions/checkout@v4
         with:
-          repository: nathanli1211/openwrt_mt5000
-          ref: glinet-mt5000
+          repository: dmsza/openwrt
+          # openwrt-main-mt5000 @ 2026-09-27
+          # mediatek: filogic: preserve GL-MT5000 config on upgrade
+          ref: 102a02f03e23020b82e9b943204cc94f13a23695
 
-      - name: Patch USB3 SuperSpeed PHY wiring on the USB-C data port
-        # The board's own dts (mt7987a-gl-mt5000.dts) turns on `ssusb` and
-        # `tphyu3port0`, but the base mt7987.dtsi leaves the xHCI
-        # controller's `phys` list pointing at only the USB2 PHY and sets
-        # mediatek,u3p-dis-msk=<1> (masking off SuperSpeed on this port).
-        # Net effect: the SuperSpeed PHY block powers up but is never
-        # wired to the controller that would use it - port gets power
-        # (device LED lights, confirmed on hardware) but never enumerates
-        # (confirmed via dmesg/logread: zero attach events, despite a
-        # known-good drive). This appends a devicetree override that
-        # removes the mask and adds the missing USB3 PHY reference.
-        #
-        # This is a reasoned fix based on reading the fork's actual
-        # devicetree source, not yet confirmed working on hardware -
-        # verify after this build is flashed.
+      - name: Confirm SuperSpeed USB is wired in this tree
+        # The February nathanli fork left the xHCI phys list on the USB2 PHY
+        # only and set mediatek,u3p-dis-msk=<1>. This tree's mt7987.dtsi
+        # already lists both PHYs and sets the mask to 0, and the board DTS
+        # enables ssusb and tphyu3port0. Re-applying the old append would
+        # fight that. Fail here if a future SHA regresses it.
         run: |
-          cat >> target/linux/mediatek/dts/mt7987a-gl-mt5000.dts <<'EOF'
-
-          &ssusb {
-          	/delete-property/ mediatek,u3p-dis-msk;
-          	phys = <&tphyu2port0 PHY_TYPE_USB2>, <&tphyu3port0 PHY_TYPE_USB3>;
-          };
-          EOF
-          echo "--- patched dts tail ---"
-          tail -8 target/linux/mediatek/dts/mt7987a-gl-mt5000.dts
+          dtsi=target/linux/mediatek/dts/mt7987.dtsi
+          dts=target/linux/mediatek/dts/mt7987a-glinet-gl-mt5000.dts
+          grep -A25 'ssusb: usb@11200000' "$dtsi" | grep -q 'mediatek,u3p-dis-msk = <0x0>;'
+          grep -A25 'ssusb: usb@11200000' "$dtsi" | grep -q 'tphyu3port0 PHY_TYPE_USB3'
+          grep -q '&ssusb' "$dts"
+          grep -q '&tphyu3port0' "$dts"
+          echo "USB3 PHY already wired in 102a02f03e23020b82e9b943204cc94f13a23695"
 
       - name: Update and install package feeds
         run: |
@@ -256,9 +249,10 @@ jobs:
           CONFIG_PACKAGE_iptables-mod-nat-extra=y
           CONFIG_PACKAGE_wget-ssl=y
           CONFIG_PACKAGE_prometheus-node-exporter-lua=y
-          CONFIG_PACKAGE_vnstat=y
-          CONFIG_PACKAGE_vnstati=y
-          CONFIG_PACKAGE_luci-app-vnstat=y
+          # vnstat was renamed to vnstat2 on current OpenWrt main
+          CONFIG_PACKAGE_vnstat2=y
+          CONFIG_PACKAGE_vnstati2=y
+          CONFIG_PACKAGE_luci-app-vnstat2=y
           CONFIG_PACKAGE_cron=y
 
           # --- Network boot (PXE) support -----------------------------
@@ -305,16 +299,42 @@ jobs:
           CONFIG_PACKAGE_luci-app-samba4=y
           EOF
           make defconfig
-          # Fail fast if the device profile did not stick
-          grep -q 'CONFIG_TARGET_mediatek_filogic_DEVICE_glinet_gl-mt5000=y' .config
+          # Fail fast if the device profile or the extras did not stick.
+          # A renamed package is silently dropped by defconfig.
+          missing=0
+          for sym in \
+            CONFIG_TARGET_mediatek_filogic_DEVICE_glinet_gl-mt5000=y \
+            CONFIG_PACKAGE_luci=y \
+            CONFIG_PACKAGE_unbound-daemon=y \
+            CONFIG_PACKAGE_unbound-control=y \
+            CONFIG_PACKAGE_luci-app-unbound=y \
+            CONFIG_PACKAGE_prometheus-node-exporter-lua=y \
+            CONFIG_PACKAGE_vnstat2=y \
+            CONFIG_PACKAGE_vnstati2=y \
+            CONFIG_PACKAGE_luci-app-vnstat2=y \
+            CONFIG_PACKAGE_dnsmasq-full=y \
+            CONFIG_PACKAGE_kmod-usb3=y \
+            CONFIG_PACKAGE_nfs-kernel-server=y \
+            CONFIG_PACKAGE_luci-app-samba4=y
+          do
+            if ! grep -q "^${sym}$" .config; then
+              echo "missing from .config: $sym"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "--- vnstat/samba/unbound/prometheus lines ---"
+            grep -E 'vnstat|samba|unbound|prometheus|dnsmasq' .config || true
+            exit 1
+          fi
 
       - name: Cache downloaded source tarballs
         uses: actions/cache@v4
         with:
           path: dl
-          key: mt5000-dl-${{ hashFiles('.config') }}
+          key: mt5000-dl-main-102a02f-${{ hashFiles('.config') }}
           restore-keys: |
-            mt5000-dl-
+            mt5000-dl-main-102a02f-
 
       - name: Download source packages
         run: make download -j$(nproc) || make download -j1

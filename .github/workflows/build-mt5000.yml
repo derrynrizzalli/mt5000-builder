@@ -8,11 +8,6 @@ name: Build OpenWrt for GL.iNet GL-MT5000 (Brume 3)
 
 on:
   workflow_dispatch:
-  # One-shot: this push starts the build. The follow-up commit removes it.
-  push:
-    branches: [main]
-    paths:
-      - '.github/build-now'
 
 permissions:
   contents: read

@@ -1,15 +1,22 @@
 # mt5000-builder
 
 Custom OpenWrt firmware build for the GL.iNet GL-MT5000 (Brume 3), built via
-GitHub Actions from the [nathanli1211/openwrt_mt5000](https://github.com/nathanli1211/openwrt_mt5000)
-fork (`glinet-mt5000` branch, OpenWrt 25.12). Run the build manually from the
-Actions tab -> "Build OpenWrt for GL.iNet GL-MT5000 (Brume 3)" -> Run workflow.
+GitHub Actions from [dmsza/openwrt](https://github.com/dmsza/openwrt) branch
+`openwrt-main-mt5000`, pinned at `102a02f03e` (2026-09-27).
+
+That tree is current OpenWrt main plus GL-MT5000 support from
+[openwrt/openwrt#24237](https://github.com/openwrt/openwrt/pull/24237),
+including the RTL8366UB DSA switch. It replaces the February 2026
+`nathanli1211/openwrt_mt5000` fork this workflow used to compile.
+
+Run the build manually from the Actions tab -> "Build OpenWrt for GL.iNet
+GL-MT5000 (Brume 3)" -> Run workflow.
 
 ## What's baked in
 
 - LuCI web UI, unbound (recursive DNS, with cache persisted across
   reboots/power loss), Prometheus node exporter + unbound stats exporter,
-  vnstat, full firewall/NAT stack, cron.
+  vnstat2, full firewall/NAT stack, cron.
 - **Network boot (PXE) support**: dnsmasq-full (DHCP + TFTP server), USB3/
   USB-storage drivers, ext4/vfat/exFAT filesystem support + mkfs/fsck tools,
   and an NFS server (for diskless-client root filesystems). TFTP is enabled
@@ -27,6 +34,10 @@ Actions tab -> "Build OpenWrt for GL.iNet GL-MT5000 (Brume 3)" -> Run workflow.
 - **Samba (luci-app-samba4)**: SMB/CIFS file sharing for any USB storage
   space not used for PXE - configure shares via LuCI (Services > Network
   Shares) after flashing.
+- **USB 3**: this source already connects the SuperSpeed PHY
+  (`mediatek,u3p-dis-msk = <0>` and both USB2 and USB3 phys on `ssusb`).
+  The old devicetree append, which targeted the February fork, is not
+  applied.
 
 ## Self-hosted package repo
 

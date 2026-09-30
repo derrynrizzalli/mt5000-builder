@@ -79,8 +79,7 @@ Back it up, do not restore it, and do the one rename below.
 
 ### 1. Back up on the live router, before the flash
 
-The February image does not have this script installed. Paste it over
-SSH to `10.10.1.2` (the uplink that is up today).
+Paste this over SSH to `10.10.1.2` (the uplink that is up today).
 
 ```sh
 cat > /tmp/mt5000-backup-live << 'EOF'
@@ -151,6 +150,8 @@ either LAN port should reach `192.168.1.1`. The WAN jack (`eth1`) will
 DHCP as interface `wan`. Do the rest of this from the LAN port, not
 from 10.10.1.2, because the firewall zone is about to change name.
 
+The router has not been flashed from here.
+
 ### 3. Rename the uplink, then restore everything except network
 
 ```sh
@@ -162,9 +163,8 @@ uci commit network
 `eth1` should DHCP again (the upstream lease that has been 10.10.1.2).
 `br-lan` stays `192.168.1.1` on `lan1` and `lan2`.
 
-Copy the tarball back and restore it. Paste the script if
-`mt5000-restore-live` is not on this image yet (the build that was
-already running when these helpers were added does not contain them).
+Copy the tarball back and paste this restore script. It is not installed
+in the image.
 
 ```sh
 cat > /tmp/mt5000-restore-live << 'EOF'
@@ -323,26 +323,16 @@ Not safe to restore as-is: `/etc/config/network`, any swconfig
 
 ### If Keep settings was ticked anyway
 
-Images built from this workflow after the helper was added run
-`/etc/uci-defaults/97-dsa-network-migrate` once. If `/etc/config/network`
-does not mention `lan1`, it moves that file to
-`/etc/config/network.pre-dsa` and installs `br-lan` on `lan1`+`lan2`
-plus interface `dns` on `eth1`. The build that was already queued
-([run 36663524839](https://github.com/derrynrizzalli/mt5000-builder/actions/runs/36663524839))
-does not contain that script. On that image, Keep settings leaves the
-February network in place and the LAN ports can come up dead. Do not
-use it. The downloaded tarball is the copy you can restore by hand.
+This image does not rewrite that file. Keep settings puts the February
+network back, `br-lan` stays on `eth0`, and the LAN jacks can come up
+with no address. Do not tick it. The downloaded tarball is the copy you
+restore by hand.
 
 ### Later upgrades, once you are on this tree
 
 Keep settings is appropriate for a later sysupgrade of this same
 image. `platform_copy_config()` writes the backup back to eMMC.
-`/lib/upgrade/keep.d/mt5000-extras` (or the lines the restore script
-appends to `/etc/sysupgrade.conf`) also keeps `/etc/unbound/`,
-`/etc/init.d/unbound-cache`, and `/www/cgi-bin/metrics.cgi`, which a
+The restore script appends `/etc/unbound/`, `/etc/init.d/unbound-cache`,
+and `/www/cgi-bin/metrics.cgi` to `/etc/sysupgrade.conf`, which a
 default sysupgrade list can miss. `distfeeds.list` stays excluded on
 purpose.
-
-The same two scripts are installed as `/usr/sbin/mt5000-backup-live`
-and `/usr/sbin/mt5000-restore-live` on images built from the workflow
-that contains them.

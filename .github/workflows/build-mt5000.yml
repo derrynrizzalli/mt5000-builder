@@ -1,9 +1,13 @@
 name: Build OpenWrt for GL.iNet GL-MT5000 (Brume 3)
 
-# Builds firmware from dmsza/openwrt branch openwrt-main-mt5000.
-# That tree is OpenWrt main plus GL-MT5000 support from
-# https://github.com/openwrt/openwrt/pull/24237 (RTL8366UB DSA switch).
-# Pinned so a later force-push cannot change what this workflow compiles.
+# Builds firmware from dmsza/openwrt, pinned at
+# 0429918e4a7b33506604b581d9db6c5740c841e0 (openwrt-main-mt5000, 2026-11-08).
+# That tree is OpenWrt main (kernel 6.18.60) plus GL-MT5000 support from
+# https://github.com/openwrt/openwrt/pull/24237 (RTL8366UB DSA switch),
+# including 1713e8be63b628fe2f1d336f4fb3a8aa152875af.
+# Pinned by full SHA so a later force-push cannot change what this workflow
+# compiles. The commit is still only on dmsza/openwrt; a derrynrizzalli/openwrt
+# branch and tag named mt5000-base-0429918 still need to be pushed.
 # Run it manually from the Actions tab -> "Run workflow".
 
 on:
@@ -38,9 +42,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: dmsza/openwrt
-          # openwrt-main-mt5000 @ 2026-09-27
-          # mediatek: filogic: preserve GL-MT5000 config on upgrade
-          ref: 102a02f03e23020b82e9b943204cc94f13a23695
+          # openwrt-main-mt5000 @ 2026-11-08, kernel 6.18.60
+          # mediatek: filogic: add GL.iNet GL-MT5000 (1713e8be)
+          ref: 0429918e4a7b33506604b581d9db6c5740c841e0
 
       - name: Confirm SuperSpeed USB is wired in this tree
         # The February nathanli fork left the xHCI phys list on the USB2 PHY
@@ -55,14 +59,14 @@ jobs:
           grep -A25 'ssusb: usb@11200000' "$dtsi" | grep -q 'tphyu3port0 PHY_TYPE_USB3'
           grep -q '&ssusb' "$dts"
           grep -q '&tphyu3port0' "$dts"
-          echo "USB3 PHY already wired in 102a02f03e23020b82e9b943204cc94f13a23695"
+          echo "USB3 PHY already wired in 0429918e4a7b33506604b581d9db6c5740c841e0"
 
       - name: Update and install package feeds
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Add custom files (unbound cache persistence)
+      - name: Add custom files (unbound cache and iPhone pairing persistence)
         run: |
           mkdir -p files/etc/init.d files/etc/uci-defaults
 
@@ -221,6 +225,29 @@ jobs:
           https://derrynrizzalli.github.io/mt5000-builder/packages/aarch64_cortex-a53/luci/packages.adb
           REPOS
 
+          # iPhone pairing ("Trust This Computer") records. Upstream usbmuxd
+          # stores them under /var/lib/lockdown, which is tmpfs on OpenWrt.
+          # The packages-feed usbmuxd build patches that base to /etc and
+          # lists /etc/lockdown as a conffile, so sysupgrade keeps it. Also
+          # point the upstream path at the same directory. START=90 runs
+          # before usbmuxd (START=94).
+          cat > files/etc/init.d/lockdown-persist <<'LOCKDOWN'
+          #!/bin/sh /etc/rc.common
+          START=90
+          start() {
+                  mkdir -p /etc/lockdown /var/lib
+                  [ -L /var/lib/lockdown ] || { rm -rf /var/lib/lockdown; ln -s /etc/lockdown /var/lib/lockdown; }
+          }
+          LOCKDOWN
+          chmod +x files/etc/init.d/lockdown-persist
+          cat > files/etc/uci-defaults/97-lockdown-persist <<'LDDEFAULTS'
+          #!/bin/sh
+          /etc/init.d/lockdown-persist enable
+          /etc/init.d/lockdown-persist start
+          exit 0
+          LDDEFAULTS
+          chmod +x files/etc/uci-defaults/97-lockdown-persist
+
       - name: Configure the build for GL-MT5000
         run: |
           cat > .config <<'EOF'
@@ -297,6 +324,23 @@ jobs:
           # storage from Windows/Mac over the network. luci-app-samba4
           # pulls in samba4-server automatically.
           CONFIG_PACKAGE_luci-app-samba4=y
+
+          # --- USB phone tethering (iPhone backup WAN) ------------------
+          # ipheth is the Apple iPhone USB Ethernet driver. usbmuxd and
+          # libimobiledevice do the pairing/trust handshake that makes iOS
+          # expose the tethering interface. cdc-ether, rndis, and cdc-ncm
+          # cover Android phones and other USB Ethernet dongles.
+          CONFIG_PACKAGE_kmod-usb-net-ipheth=y
+          CONFIG_PACKAGE_usbmuxd=y
+          CONFIG_PACKAGE_libimobiledevice=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y
+          CONFIG_PACKAGE_kmod-usb-net-rndis=y
+          CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y
+
+          # Build every kernel module as a package (not installed in the
+          # image) and publish it to the Pages feed, so a later kmod can be
+          # added with apk without a rebuild.
+          CONFIG_ALL_KMODS=y
           EOF
           make defconfig
           # Fail fast if the device profile or the extras did not stick.
@@ -315,7 +359,14 @@ jobs:
             CONFIG_PACKAGE_dnsmasq-full=y \
             CONFIG_PACKAGE_kmod-usb3=y \
             CONFIG_PACKAGE_nfs-kernel-server=y \
-            CONFIG_PACKAGE_luci-app-samba4=y
+            CONFIG_PACKAGE_luci-app-samba4=y \
+            CONFIG_PACKAGE_kmod-usb-net-ipheth=y \
+            CONFIG_PACKAGE_usbmuxd=y \
+            CONFIG_PACKAGE_libimobiledevice=y \
+            CONFIG_PACKAGE_kmod-usb-net-cdc-ether=y \
+            CONFIG_PACKAGE_kmod-usb-net-rndis=y \
+            CONFIG_PACKAGE_kmod-usb-net-cdc-ncm=y \
+            CONFIG_ALL_KMODS=y
           do
             if ! grep -q "^${sym}$" .config; then
               echo "missing from .config: $sym"
@@ -323,8 +374,8 @@ jobs:
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "--- vnstat/samba/unbound/prometheus lines ---"
-            grep -E 'vnstat|samba|unbound|prometheus|dnsmasq' .config || true
+            echo "--- vnstat/samba/unbound/prometheus/usb lines ---"
+            grep -E 'vnstat|samba|unbound|prometheus|dnsmasq|ipheth|usbmuxd|imobile|cdc-ether|rndis|cdc-ncm|ALL_KMODS' .config || true
             exit 1
           fi
 
@@ -332,15 +383,20 @@ jobs:
         uses: actions/cache@v4
         with:
           path: dl
-          key: mt5000-dl-main-102a02f-${{ hashFiles('.config') }}
+          key: mt5000-dl-main-0429918-${{ hashFiles('.config') }}
           restore-keys: |
+            mt5000-dl-main-0429918-
             mt5000-dl-main-102a02f-
 
       - name: Download source packages
         run: make download -j$(nproc) || make download -j1
 
-      - name: Build firmware (takes 2-4 hours)
-        run: make -j$(nproc) world || make -j1 V=s world
+      - name: Build firmware (takes several hours)
+        # IGNORE_ERRORS=m: a broken optional module (=m, from CONFIG_ALL_KMODS)
+        # is skipped instead of failing the whole build. package/Makefile only
+        # adds =m packages to builddirs-ignore-compile, so anything =y still
+        # fails the build. Same setting the OpenWrt buildbots use.
+        run: make -j$(nproc) IGNORE_ERRORS=m world || make -j1 V=s IGNORE_ERRORS=m world
 
       - name: Show build results and disk usage
         if: always()

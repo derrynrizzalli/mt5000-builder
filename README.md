@@ -2,12 +2,15 @@
 
 Custom OpenWrt firmware build for the GL.iNet GL-MT5000 (Brume 3), built via
 GitHub Actions from [dmsza/openwrt](https://github.com/dmsza/openwrt) branch
-`openwrt-main-mt5000`, pinned at `102a02f03e` (2026-09-27).
+`openwrt-main-mt5000`, pinned at `0429918e4a7b` (2026-11-08, kernel 6.18.60).
 
 That tree is current OpenWrt main plus GL-MT5000 support from
 [openwrt/openwrt#24237](https://github.com/openwrt/openwrt/pull/24237),
-including the RTL8366UB DSA switch. It replaces the February 2026
-`nathanli1211/openwrt_mt5000` fork this workflow used to compile.
+including the RTL8366UB DSA switch (`1713e8be`). It replaces the February 2026
+`nathanli1211/openwrt_mt5000` fork this workflow used to compile. The workflow
+still checks that commit out from `dmsza/openwrt` by full SHA. A
+`derrynrizzalli/openwrt` branch and tag `mt5000-base-0429918` at the same
+commit still need to be pushed, so a later force-push cannot orphan the pin.
 
 Run the build manually from the Actions tab -> "Build OpenWrt for GL.iNet
 GL-MT5000 (Brume 3)" -> Run workflow.
@@ -34,6 +37,15 @@ GL-MT5000 (Brume 3)" -> Run workflow.
 - **Samba (luci-app-samba4)**: SMB/CIFS file sharing for any USB storage
   space not used for PXE - configure shares via LuCI (Services > Network
   Shares) after flashing.
+- **USB phone tethering**: iPhone Personal Hotspot over USB
+  (`kmod-usb-net-ipheth`, `usbmuxd`, `libimobiledevice`) and Android or
+  dongle USB Ethernet (`kmod-usb-net-cdc-ether`, `kmod-usb-net-rndis`,
+  `kmod-usb-net-cdc-ncm`). The packages-feed `usbmuxd` stores pairing
+  records in `/etc/lockdown` (a conffile). An init script also links
+  `/var/lib/lockdown` there, because that upstream path is tmpfs and would
+  otherwise be wiped on reboot. Every kernel module is built as a package
+  (`CONFIG_ALL_KMODS`) and published on the Pages feed. After the phone is
+  plugged in, add the new interface as a WAN in LuCI.
 - **USB 3**: this source already connects the SuperSpeed PHY
   (`mediatek,u3p-dis-msk = <0>` and both USB2 and USB3 phys on `ssusb`).
   The old devicetree append, which targeted the February fork, is not
